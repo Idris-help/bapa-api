@@ -15,7 +15,7 @@ app = Flask(__name__)
 # Initialize Supabase client
 supabase: Client = create_client(
     os.getenv("SUPABASE_URL"),
-    os.getenv("sb_secret_HqiTjHYw18X0WZAoI6XxDA_ReTo82lD")
+     os.getenv("SUPABASE_ANON_KEY") 
 )
 
 # Homepage
