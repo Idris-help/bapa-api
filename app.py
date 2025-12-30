@@ -20,10 +20,17 @@ print(f"SUPABASE_ANON_KEY first 30 chars: {os.getenv('SUPABASE_ANON_KEY')[:30] i
 print("=========================")
 
 # REAL MODE: Initialize Supabase client
+# REAL MODE: Initialize Supabase client
+
+print("=== CHECKING KEYS ===")
+print(f"ANON_KEY: {os.getenv('SUPABASE_ANON_KEY')[:20] if os.getenv('SUPABASE_ANON_KEY') else 'None'}")
+print(f"SERVICE_KEY: {os.getenv('SUPABASE_SERVICE_KEY')[:20] if os.getenv('SUPABASE_SERVICE_KEY') else 'None'}")
+print("=====================")
+
 try:
     supabase: Client = create_client(
         os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_ANON_KEY")
+        os.getenv("SUPABASE_SERVICE_KEY")  # Changed from ANON_KEY to SERVICE_KEY
     )
     print("✅ Supabase client initialized successfully")
     
