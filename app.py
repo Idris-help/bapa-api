@@ -12,12 +12,18 @@ load_dotenv()
 # Create Flask app
 app = Flask(__name__)
 
-# Initialize Supabase client
+# Add debug before Supabase initialization
+print("=== RAILWAY ENV DEBUG ===")
+print(f"SUPABASE_URL: {os.getenv('SUPABASE_URL')}")
+print(f"SUPABASE_ANON_KEY exists: {bool(os.getenv('SUPABASE_ANON_KEY'))}")
+print(f"SUPABASE_ANON_KEY first 30 chars: {os.getenv('SUPABASE_ANON_KEY')[:30] if os.getenv('SUPABASE_ANON_KEY') else 'None'}")
+print("=========================")
+
+# Then initialize Supabase
 supabase: Client = create_client(
     os.getenv("SUPABASE_URL"),
-     os.getenv("SUPABASE_ANON_KEY") 
+    os.getenv("SUPABASE_ANON_KEY")
 )
-
 # Homepage
 @app.route('/')
 def home():
