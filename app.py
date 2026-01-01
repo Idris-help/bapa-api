@@ -10,19 +10,12 @@ import logging
 # Load environment variables from .env file
 load_dotenv()
 
-# ========== CONFIGURE LOGGING TO FILE ==========
+# ========== SIMPLE LOGGING ==========
 import sys
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
-
-# Log to file AND console
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('/tmp/app_debug.log')
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 # ========== END LOGGING CONFIG ==========
@@ -30,15 +23,12 @@ logger = logging.getLogger(__name__)
 # Create Flask app
 app = Flask(__name__)
 
-# DEBUG: Show what Railway provides
-# ========== CHANGED: USE DIRECT REST API ==========
+# ========== SIMPLE SUPABASE CLIENT (FIXED) ==========
 import requests
 
-logger.debug("=== USING DIRECT REST API ===")
 supabase_url = "https://rzryozfztwupzjhlkwji.supabase.co"
 supabase_key = "sb_publishable_kCre0WyunXL8XxrETcmsUw_wMhssuDA"
 
-# Create a simple REST client
 class SimpleSupabaseClient:
     def __init__(self, url, key):
         self.base_url = url
@@ -47,6 +37,7 @@ class SimpleSupabaseClient:
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json"
         }
+        logger.debug(f"Supabase client initialized for URL: {url}")
     
     def table(self, table_name):
         return SimpleTableClient(f"{self.base_url}/rest/v1/{table_name}", self.headers)
@@ -73,48 +64,66 @@ class SimpleTableClient:
         return self
     
     def execute(self):
-        import urllib.request
-        import urllib.parse
-        
-        # Build URL with params
-        url = self.endpoint
-        if hasattr(self, 'params'):
-            url += '?' + urllib.parse.urlencode(self.params)
-        
-        # Create request
-        req = urllib.request.Request(url, headers=self.headers)
-        
-        # Make request
-        with urllib.request.urlopen(req) as response:
-            data = json.loads(response.read().decode())
-        
-        class Response:
-            def __init__(self, data):
-                self.data = data
-        
-        return Response(data)
+        try:
+            import urllib.request
+            import urllib.parse
+            
+            # Build URL with params
+            url = self.endpoint
+            if hasattr(self, 'params'):
+                url += '?' + urllib.parse.urlencode(self.params)
+            
+            logger.debug(f"Making GET request to: {url}")
+            
+            # Create request
+            req = urllib.request.Request(url, headers=self.headers)
+            
+            # Make request
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+            
+            class Response:
+                def __init__(self, data):
+                    self.data = data
+            
+            logger.debug(f"GET request successful, got {len(data)} items")
+            return Response(data)
+            
+        except Exception as e:
+            logger.error(f"GET request failed: {str(e)}")
+            raise
     
     def insert(self, data):
-        import urllib.request
-        import json
-        
-        # Create request
-        req = urllib.request.Request(
-            self.endpoint,
-            data=json.dumps(data).encode('utf-8'),
-            headers=self.headers,
-            method='POST'
-        )
-        
-        # Make request
-        with urllib.request.urlopen(req) as response:
-            result = json.loads(response.read().decode())
-        
-        class Response:
-            def __init__(self, data):
-                self.data = data
-        
-        return Response(result)
+        try:
+            import urllib.request
+            import json
+            
+            logger.debug(f"Making POST request to: {self.endpoint}")
+            logger.debug(f"Data to insert: {data}")
+            
+            # Create request
+            req = urllib.request.Request(
+                self.endpoint,
+                data=json.dumps(data).encode('utf-8'),
+                headers=self.headers,
+                method='POST'
+            )
+            
+            # Make request
+            with urllib.request.urlopen(req) as response:
+                result = json.loads(response.read().decode())
+            
+            class Response:
+                def __init__(self, data):
+                    self.data = data
+            
+            logger.debug(f"POST request successful: {result}")
+            return Response(result)
+            
+        except Exception as e:
+            logger.error(f"POST request failed: {str(e)}")
+            # Return the actual error
+            raise
 
 try:
     supabase = SimpleSupabaseClient(supabase_url, supabase_key)
@@ -126,9 +135,8 @@ try:
     
 except Exception as e:
     logger.error(f"⚠️ REST API initialization error: {e}", exc_info=True)
-    logger.debug("⚠️ Falling back to mock mode")
     supabase = None
-# ========== END CHANGED SECTION ==========
+# ========== END CLIENT SECTION ==========
 
 # Homepage
 @app.route('/')
@@ -177,53 +185,60 @@ def test_db():
             "mode": "real"
         })
 
-# ========== USER CREATION WITH ERROR IN RESPONSE ==========
+# ========== SIMPLE TEST ENDPOINT ==========
 @app.route('/api/submit', methods=['POST'])
 def submit_test():
+    logger.debug("=== /api/submit called ===")
+    
     try:
-        data = request.json
-        
+        # Test 1: Basic connection
+        logger.debug("Test 1: Checking supabase object")
         if supabase is None:
-            return jsonify({"status": "mock"})
+            return jsonify({"error": "Database not connected"}), 500
         
-        # Force NEW user creation (not existing)
-        user_email = f"new_user_{uuid.uuid4().hex[:8]}@example.com"
+        # Test 2: Simple SELECT (we know this works)
+        logger.debug("Test 2: Testing SELECT query")
+        select_test = supabase.table('users').select('*').limit(1).execute()
+        logger.debug(f"SELECT test: Found {len(select_test.data)} users")
         
-        # First, check it doesn't exist
-        user_check = supabase.table('users').select('*').eq('email', user_email).execute()
+        # Test 3: Try a SIMPLE insert with minimal data
+        logger.debug("Test 3: Testing INSERT with minimal data")
         
-        # Create new user
-        user_data = {"email": user_email}
-        user_response = supabase.table('users').insert(user_data).execute()
-        user_id = user_response.data[0]['id']
+        # Use a simple test table if 'users' doesn't allow inserts
+        test_email = f"simple_test_{uuid.uuid4().hex[:8]}@test.com"
+        test_data = {"email": test_email}
         
-        # Verify creation worked
-        verify_check = supabase.table('users').select('*').eq('id', user_id).execute()
+        logger.debug(f"Attempting to insert: {test_data}")
         
+        # Try the insert
+        insert_result = supabase.table('users').insert(test_data).execute()
+        logger.debug(f"Insert result: {insert_result.data}")
+        
+        # If we get here, it worked!
         return jsonify({
-            "status": "user_creation_works",
-            "message": "User creation logic passed",
-            "email": user_email,
-            "user_id": user_id,
-            "created_successfully": len(verify_check.data) > 0
+            "status": "success",
+            "message": "All tests passed!",
+            "select_test": f"Found {len(select_test.data)} users",
+            "insert_test": f"Inserted user with ID: {insert_result.data[0]['id'] if insert_result.data else 'unknown'}",
+            "test_email": test_email
         })
         
     except Exception as e:
-        # Return the ACTUAL error in the response
+        logger.error(f"ERROR in /api/submit: {str(e)}", exc_info=True)
+        
+        # Return detailed error
         import traceback
-        error_details = traceback.format_exc()
+        error_trace = traceback.format_exc()
         
         return jsonify({
             "error": str(e),
             "error_type": type(e).__name__,
-            "error_details": error_details,
+            "error_details": error_trace,
             "debug_info": {
-                "supabase_url": supabase_url,
-                "has_supabase_object": supabase is not None,
-                "user_email_attempted": user_email if 'user_email' in locals() else "not set"
+                "supabase_connected": supabase is not None,
+                "supabase_url": supabase_url
             }
         }), 500
-# ========== END TEST VERSION ==========
 
 # Get profile using API key
 @app.route('/api/v1/profile', methods=['GET'])
@@ -302,10 +317,9 @@ if __name__ == '__main__':
     logger.info("=" * 50)
     logger.info(f"🚀 BAPA API Server - {mode.upper()} MODE")
     logger.info("=" * 50)
-    logger.info(f"📊 Supabase URL: {os.getenv('SUPABASE_URL')}")
-    logger.info(f"🔑 Anon Key: {'✅ Loaded' if os.getenv('SUPABASE_ANON_KEY') else '❌ Missing'}")
-    logger.info(f"🔐 Service Key: {'✅ Loaded' if os.getenv('SUPABASE_SERVICE_KEY') else '❌ Missing'}")
-    logger.info(f"🗄️ Database: {'✅ Connected' if supabase is not None else '❌ Mock Mode'}")
+    logger.info(f"📊 Supabase URL: {supabase_url}")
+    logger.info(f"🔑 Anon Key: Loaded")
+    logger.info(f"🗄️ Database: {'✅ Connected' if supabase is not None else '❌ Not Connected'}")
     logger.info("=" * 50)
     logger.info(f"🌐 Server running on: http://localhost:5000")
     logger.info("🔗 Available Endpoints:")
