@@ -22,27 +22,84 @@ print("===================")
 app = Flask(__name__)
 
 # DEBUG: Show what Railway provides
-print("=== RAILWAY ENV DEBUG ===")
-print(f"SUPABASE_URL: {os.getenv('SUPABASE_URL')}")
-print(f"SUPABASE_ANON_KEY exists: {bool(os.getenv('SUPABASE_ANON_KEY'))}")
-print(f"SUPABASE_ANON_KEY first 30 chars: {os.getenv('SUPABASE_ANON_KEY')[:30] if os.getenv('SUPABASE_ANON_KEY') else 'None'}")
-print("=========================")
+# ========== CHANGED: USE DIRECT REST API ==========
+import requests
 
-# ========== CHANGED: USE HARDCODED ANON KEY ==========
-print("=== FORCING HARDCODED ANON KEY ===")
+print("=== USING DIRECT REST API ===")
 supabase_url = "https://rzryozfztwupzjhlkwji.supabase.co"
 supabase_key = "sb_publishable_kCre0WyunXL8XxrETcmsUw_wMhssuDA"
-print(f"URL: {supabase_url}")
-print(f"Key: {supabase_key[:30]}...")
-print("==================================")
+
+# Create a simple REST client
+class SimpleSupabaseClient:
+    def __init__(self, url, key):
+        self.base_url = url
+        self.headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+    
+    def table(self, table_name):
+        return SimpleTableClient(f"{self.base_url}/rest/v1/{table_name}", self.headers)
+
+class SimpleTableClient:
+    def __init__(self, endpoint, headers):
+        self.endpoint = endpoint
+        self.headers = headers
+    
+    def select(self, columns="*"):
+        self.select_columns = columns
+        return self
+    
+    def eq(self, column, value):
+        if not hasattr(self, 'params'):
+            self.params = {}
+        self.params[column] = f"eq.{value}"
+        return self
+    
+    def limit(self, count):
+        if not hasattr(self, 'params'):
+            self.params = {}
+        self.params['limit'] = str(count)
+        return self
+    
+    def execute(self):
+        import requests
+        response = requests.get(self.endpoint, headers=self.headers, params=getattr(self, 'params', {}))
+        response.raise_for_status()
+        
+        class Response:
+            def __init__(self, data):
+                self.data = data
+        
+        return Response(response.json())
+    
+    def insert(self, data):
+        import requests
+        response = requests.post(self.endpoint, headers=self.headers, json=data)
+        response.raise_for_status()
+        
+        class Response:
+            def __init__(self, data):
+                self.data = data
+        
+        return Response(response.json())
 
 try:
-    supabase: Client = create_client(supabase_url, supabase_key)
-    print("✅ Supabase client initialized with hardcoded anon key")
+    supabase = SimpleSupabaseClient(supabase_url, supabase_key)
+    print("✅ Simple REST client created")
     
     # Test connection
     test_response = supabase.table('users').select('*').limit(1).execute()
     print(f"✅ Database connection test: {len(test_response.data)} users found")
+    
+except Exception as e:
+    print(f"⚠️ REST API initialization error: {e}")
+    import traceback
+    traceback.print_exc()
+    print("⚠️ Falling back to mock mode")
+    supabase = None
+# ========== END CHANGED SECTION ==========
     
 except Exception as e:
     print(f"⚠️ Supabase initialization error: {e}")
