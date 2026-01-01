@@ -9,6 +9,15 @@ from datetime import datetime
 # Load environment variables from .env file
 load_dotenv()
 
+# ========== ADD PYTHON DEBUG ==========
+import sys
+print("=== PYTHON DEBUG ===")
+print(f"Python version: {sys.version}")
+print(f"Python executable: {sys.executable}")
+print(f"Current directory: {os.getcwd()}")
+print("===================")
+# ========== END DEBUG ==========
+
 # Create Flask app
 app = Flask(__name__)
 
@@ -19,20 +28,17 @@ print(f"SUPABASE_ANON_KEY exists: {bool(os.getenv('SUPABASE_ANON_KEY'))}")
 print(f"SUPABASE_ANON_KEY first 30 chars: {os.getenv('SUPABASE_ANON_KEY')[:30] if os.getenv('SUPABASE_ANON_KEY') else 'None'}")
 print("=========================")
 
-# REAL MODE: Initialize Supabase client
-# REAL MODE: Initialize Supabase client
-
-print("=== CHECKING KEYS ===")
-print(f"ANON_KEY: {os.getenv('SUPABASE_ANON_KEY')[:20] if os.getenv('SUPABASE_ANON_KEY') else 'None'}")
-print(f"SERVICE_KEY: {os.getenv('SUPABASE_SERVICE_KEY')[:20] if os.getenv('SUPABASE_SERVICE_KEY') else 'None'}")
-print("=====================")
+# ========== CHANGED: USE HARDCODED ANON KEY ==========
+print("=== FORCING HARDCODED ANON KEY ===")
+supabase_url = "https://rzryozfztwupzjhlkwji.supabase.co"
+supabase_key = "sb_publishable_kCre0WyunXL8XxrETcmsUw_wMhssuDA"
+print(f"URL: {supabase_url}")
+print(f"Key: {supabase_key[:30]}...")
+print("==================================")
 
 try:
-    supabase: Client = create_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_SERVICE_KEY")  # Changed from ANON_KEY to SERVICE_KEY
-    )
-    print("✅ Supabase client initialized successfully")
+    supabase: Client = create_client(supabase_url, supabase_key)
+    print("✅ Supabase client initialized with hardcoded anon key")
     
     # Test connection
     test_response = supabase.table('users').select('*').limit(1).execute()
@@ -40,8 +46,11 @@ try:
     
 except Exception as e:
     print(f"⚠️ Supabase initialization error: {e}")
+    import traceback
+    traceback.print_exc()
     print("⚠️ Falling back to mock mode")
     supabase = None
+# ========== END CHANGED SECTION ==========
 
 # Homepage
 @app.route('/')
