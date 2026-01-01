@@ -5,17 +5,29 @@ from dotenv import load_dotenv
 import json
 import uuid
 from datetime import datetime
+import logging  # ADD THIS IMPORT
 
 # Load environment variables from .env file
 load_dotenv()
 
+# ========== CONFIGURE LOGGING ==========
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # This ensures logs go to Railway's output
+    ]
+)
+logger = logging.getLogger(__name__)
+# ========== END LOGGING CONFIG ==========
+
 # ========== ADD PYTHON DEBUG ==========
 import sys
-print("=== PYTHON DEBUG ===")
-print(f"Python version: {sys.version}")
-print(f"Python executable: {sys.executable}")
-print(f"Current directory: {os.getcwd()}")
-print("===================")
+logger.debug("=== PYTHON DEBUG ===")
+logger.debug(f"Python version: {sys.version}")
+logger.debug(f"Python executable: {sys.executable}")
+logger.debug(f"Current directory: {os.getcwd()}")
+logger.debug("===================")
 # ========== END DEBUG ==========
 
 # Create Flask app
@@ -25,7 +37,7 @@ app = Flask(__name__)
 # ========== CHANGED: USE DIRECT REST API ==========
 import requests
 
-print("=== USING DIRECT REST API ===")
+logger.debug("=== USING DIRECT REST API ===")
 supabase_url = "https://rzryozfztwupzjhlkwji.supabase.co"
 supabase_key = "sb_publishable_kCre0WyunXL8XxrETcmsUw_wMhssuDA"
 
@@ -109,25 +121,15 @@ class SimpleTableClient:
 
 try:
     supabase = SimpleSupabaseClient(supabase_url, supabase_key)
-    print("✅ Simple REST client created")
+    logger.debug("✅ Simple REST client created")
     
     # Test connection
     test_response = supabase.table('users').select('*').limit(1).execute()
-    print(f"✅ Database connection test: {len(test_response.data)} users found")
+    logger.debug(f"✅ Database connection test: {len(test_response.data)} users found")
     
 except Exception as e:
-    print(f"⚠️ REST API initialization error: {e}")
-    import traceback
-    traceback.print_exc()
-    print("⚠️ Falling back to mock mode")
-    supabase = None
-# ========== END CHANGED SECTION ==========
-    
-except Exception as e:
-    print(f"⚠️ Supabase initialization error: {e}")
-    import traceback
-    traceback.print_exc()
-    print("⚠️ Falling back to mock mode")
+    logger.error(f"⚠️ REST API initialization error: {e}", exc_info=True)
+    logger.debug("⚠️ Falling back to mock mode")
     supabase = None
 # ========== END CHANGED SECTION ==========
 
@@ -170,6 +172,7 @@ def test_db():
             "mode": "real"
         })
     except Exception as e:
+        logger.error(f"Database query failed: {str(e)}", exc_info=True)
         return jsonify({
             "status": "error",
             "message": f"Database query failed: {str(e)}",
@@ -177,18 +180,16 @@ def test_db():
             "mode": "real"
         })
 
-# Submit BAPA test results - WITH DEBUG LOGGING ADDED
+# Submit BAPA test results - WITH PROPER LOGGING
 @app.route('/api/submit', methods=['POST'])
 def submit_test():
+    logger.debug("=== /api/submit CALLED ===")
     try:
-        print("=== /api/submit called ===")
-        print(f"Request data type: {type(request.json)}")
-        print(f"Request data: {request.json}")
-        
         data = request.json
+        logger.debug(f"Request data received: {data}")
         
         if supabase is None:
-            print("Running in MOCK mode")
+            logger.debug("Running in MOCK mode")
             # Mock mode
             return jsonify({
                 "status": "success",
@@ -201,32 +202,32 @@ def submit_test():
                 "mode": "mock"
             })
         
-        print("Running in REAL mode")
+        logger.debug("Running in REAL mode")
         # REAL MODE: Save to database
         # 1. Create user first (or use existing)
         user_email = data.get('email', f"user_{uuid.uuid4().hex[:8]}@bapa.com")
-        print(f"User email: {user_email}")
+        logger.debug(f"User email: {user_email}")
         
         # Check if user exists
-        print("Checking if user exists...")
+        logger.debug("Checking if user exists...")
         user_check = supabase.table('users').select('*').eq('email', user_email).execute()
-        print(f"User check result: {user_check.data}")
+        logger.debug(f"User check result: {user_check.data}")
         
         if user_check.data:
             user_id = user_check.data[0]['id']
-            print(f"User exists with ID: {user_id}")
+            logger.debug(f"User exists with ID: {user_id}")
         else:
             # Create new user
-            print("Creating new user...")
+            logger.debug("Creating new user...")
             user_data = {"email": user_email}
-            print(f"User data to insert: {user_data}")
+            logger.debug(f"User data to insert: {user_data}")
             user_response = supabase.table('users').insert(user_data).execute()
-            print(f"User insert response: {user_response.data}")
+            logger.debug(f"User insert response: {user_response.data}")
             user_id = user_response.data[0]['id']
-            print(f"New user ID: {user_id}")
+            logger.debug(f"New user ID: {user_id}")
         
         # 2. Save test response
-        print("Preparing response data...")
+        logger.debug("Preparing response data...")
         response_data = {
             "user_id": user_id,
             "language": data.get('language', 'EN'),
@@ -235,30 +236,31 @@ def submit_test():
             "oce_matrix": data.get('oce_matrix', {}),
             "profile": data.get('profile', {})
         }
-        print(f"Response data: {response_data}")
+        logger.debug(f"Response data: {response_data}")
         
-        print("Inserting into responses table...")
+        logger.debug("Inserting into responses table...")
         response = supabase.table('responses').insert(response_data).execute()
-        print(f"Insert response: {response.data}")
+        logger.debug(f"Insert response: {response.data}")
         response_id = response.data[0]['id']
-        print(f"Response ID: {response_id}")
+        logger.debug(f"Response ID: {response_id}")
         
         # 3. Generate API key
         api_key = f"bapa_{uuid.uuid4().hex}"
-        print(f"Generated API key: {api_key}")
+        logger.debug(f"Generated API key: {api_key}")
         
         api_key_data = {
             "user_id": user_id,
             "api_key": api_key,
-            "is_active": True,  # Added missing field
-            "requests_count": 0  # Added missing field
+            "is_active": True,
+            "requests_count": 0
         }
-        print(f"API key data to insert: {api_key_data}")
+        logger.debug(f"API key data to insert: {api_key_data}")
         
-        print("Inserting into api_keys table...")
+        logger.debug("Inserting into api_keys table...")
         supabase.table('api_keys').insert(api_key_data).execute()
-        print("API key inserted successfully")
+        logger.debug("API key inserted successfully")
         
+        logger.info(f"Test submitted successfully for user {user_email}")
         return jsonify({
             "status": "success",
             "message": "BAPA test saved successfully to database!",
@@ -276,10 +278,8 @@ def submit_test():
         })
         
     except Exception as e:
-        print(f"!!! ERROR in /api/submit: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"!!! CRITICAL ERROR in /api/submit: {str(e)}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
 
 # Get profile using API key
 @app.route('/api/v1/profile', methods=['GET'])
@@ -348,28 +348,29 @@ def get_profile():
         })
         
     except Exception as e:
+        logger.error(f"Error in /api/v1/profile: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 # Main function to run the app
 if __name__ == '__main__':
     mode = "mock" if supabase is None else "real"
     
-    print("=" * 50)
-    print(f"🚀 BAPA API Server - {mode.upper()} MODE")
-    print("=" * 50)
-    print(f"📊 Supabase URL: {os.getenv('SUPABASE_URL')}")
-    print(f"🔑 Anon Key: {'✅ Loaded' if os.getenv('SUPABASE_ANON_KEY') else '❌ Missing'}")
-    print(f"🔐 Service Key: {'✅ Loaded' if os.getenv('SUPABASE_SERVICE_KEY') else '❌ Missing'}")
-    print(f"🗄️ Database: {'✅ Connected' if supabase is not None else '❌ Mock Mode'}")
-    print("=" * 50)
-    print(f"🌐 Server running on: http://localhost:5000")
-    print("🔗 Available Endpoints:")
-    print("   - GET  /                    - Homepage")
-    print("   - GET  /test-env            - Test environment")
-    print("   - GET  /test-db             - Test database")
-    print("   - POST /api/submit          - Submit BAPA test")
-    print("   - GET  /api/v1/profile      - Get profile (requires API key)")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info(f"🚀 BAPA API Server - {mode.upper()} MODE")
+    logger.info("=" * 50)
+    logger.info(f"📊 Supabase URL: {os.getenv('SUPABASE_URL')}")
+    logger.info(f"🔑 Anon Key: {'✅ Loaded' if os.getenv('SUPABASE_ANON_KEY') else '❌ Missing'}")
+    logger.info(f"🔐 Service Key: {'✅ Loaded' if os.getenv('SUPABASE_SERVICE_KEY') else '❌ Missing'}")
+    logger.info(f"🗄️ Database: {'✅ Connected' if supabase is not None else '❌ Mock Mode'}")
+    logger.info("=" * 50)
+    logger.info(f"🌐 Server running on: http://localhost:5000")
+    logger.info("🔗 Available Endpoints:")
+    logger.info("   - GET  /                    - Homepage")
+    logger.info("   - GET  /test-env            - Test environment")
+    logger.info("   - GET  /test-db             - Test database")
+    logger.info("   - POST /api/submit          - Submit BAPA test")
+    logger.info("   - GET  /api/v1/profile      - Get profile (requires API key)")
+    logger.info("=" * 50)
     
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
