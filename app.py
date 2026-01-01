@@ -5,30 +5,23 @@ from dotenv import load_dotenv
 import json
 import uuid
 from datetime import datetime
-import logging  # ADD THIS IMPORT
-
+import logging
+import sys 
 # Load environment variables from .env file
 load_dotenv()
 
 # ========== CONFIGURE LOGGING ==========
+import sys
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()  # This ensures logs go to Railway's output
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 # ========== END LOGGING CONFIG ==========
-
-# ========== ADD PYTHON DEBUG ==========
-import sys
-logger.debug("=== PYTHON DEBUG ===")
-logger.debug(f"Python version: {sys.version}")
-logger.debug(f"Python executable: {sys.executable}")
-logger.debug(f"Current directory: {os.getcwd()}")
-logger.debug("===================")
-# ========== END DEBUG ==========
 
 # Create Flask app
 app = Flask(__name__)
@@ -180,106 +173,41 @@ def test_db():
             "mode": "real"
         })
 
-# Submit BAPA test results - WITH PROPER LOGGING
+# ========== DEBUG VERSION OF /api/submit ==========
 @app.route('/api/submit', methods=['POST'])
 def submit_test():
-    logger.debug("=== /api/submit CALLED ===")
+    print("🎯 DEBUG 1: /api/submit ENTERED - This MUST appear in logs", flush=True)
+    
     try:
+        print("🎯 DEBUG 2: Try block started", flush=True)
         data = request.json
-        logger.debug(f"Request data received: {data}")
+        print(f"🎯 DEBUG 3: Got request data: {data}", flush=True)
         
+        # FORCE AN ERROR EARLY - Let's see if we even get this far
+        print("🎯 DEBUG 4: Checking supabase object", flush=True)
         if supabase is None:
-            logger.debug("Running in MOCK mode")
-            # Mock mode
-            return jsonify({
-                "status": "success",
-                "message": "Mock mode - Test saved (not in database)",
-                "user_id": str(uuid.uuid4()),
-                "response_id": str(uuid.uuid4()),
-                "api_key": f"bapa_mock_{uuid.uuid4().hex[:8]}",
-                "sovereignty_score": data.get('sovereignty_score', 75.5),
-                "profile_type": data.get('profile', {}).get('type', 'Operator'),
-                "mode": "mock"
-            })
+            print("🎯 DEBUG 5: supabase is None - mock mode", flush=True)
+            return jsonify({"status": "mock", "message": "Mock mode"})
         
-        logger.debug("Running in REAL mode")
-        # REAL MODE: Save to database
-        # 1. Create user first (or use existing)
-        user_email = data.get('email', f"user_{uuid.uuid4().hex[:8]}@bapa.com")
-        logger.debug(f"User email: {user_email}")
+        print("🎯 DEBUG 6: Real mode - testing database connection", flush=True)
         
-        # Check if user exists
-        logger.debug("Checking if user exists...")
-        user_check = supabase.table('users').select('*').eq('email', user_email).execute()
-        logger.debug(f"User check result: {user_check.data}")
+        # SIMPLEST POSSIBLE TEST - Just query users table
+        test = supabase.table('users').select('*').limit(1).execute()
+        print(f"🎯 DEBUG 7: Database test result: {test.data}", flush=True)
         
-        if user_check.data:
-            user_id = user_check.data[0]['id']
-            logger.debug(f"User exists with ID: {user_id}")
-        else:
-            # Create new user
-            logger.debug("Creating new user...")
-            user_data = {"email": user_email}
-            logger.debug(f"User data to insert: {user_data}")
-            user_response = supabase.table('users').insert(user_data).execute()
-            logger.debug(f"User insert response: {user_response.data}")
-            user_id = user_response.data[0]['id']
-            logger.debug(f"New user ID: {user_id}")
-        
-        # 2. Save test response
-        logger.debug("Preparing response data...")
-        response_data = {
-            "user_id": user_id,
-            "language": data.get('language', 'EN'),
-            "answers": data.get('answers', {}),
-            "sovereignty_score": data.get('sovereignty_score', 75.5),
-            "oce_matrix": data.get('oce_matrix', {}),
-            "profile": data.get('profile', {})
-        }
-        logger.debug(f"Response data: {response_data}")
-        
-        logger.debug("Inserting into responses table...")
-        response = supabase.table('responses').insert(response_data).execute()
-        logger.debug(f"Insert response: {response.data}")
-        response_id = response.data[0]['id']
-        logger.debug(f"Response ID: {response_id}")
-        
-        # 3. Generate API key
-        api_key = f"bapa_{uuid.uuid4().hex}"
-        logger.debug(f"Generated API key: {api_key}")
-        
-        api_key_data = {
-            "user_id": user_id,
-            "api_key": api_key,
-            "is_active": True,
-            "requests_count": 0
-        }
-        logger.debug(f"API key data to insert: {api_key_data}")
-        
-        logger.debug("Inserting into api_keys table...")
-        supabase.table('api_keys').insert(api_key_data).execute()
-        logger.debug("API key inserted successfully")
-        
-        logger.info(f"Test submitted successfully for user {user_email}")
+        # If we get here, return a simple success
         return jsonify({
-            "status": "success",
-            "message": "BAPA test saved successfully to database!",
-            "user_id": user_id,
-            "response_id": response_id,
-            "api_key": api_key,
-            "sovereignty_score": response_data['sovereignty_score'],
-            "profile_type": response_data['profile'].get('type', 'Not specified'),
-            "next_steps": [
-                "Use this API key to access your profile",
-                "Endpoint: GET /api/v1/profile",
-                "Header: Authorization: Bearer YOUR_API_KEY"
-            ],
-            "mode": "real"
+            "status": "debug_success",
+            "message": "Debug test passed",
+            "data_length": len(test.data) if test.data else 0
         })
         
     except Exception as e:
-        logger.error(f"!!! CRITICAL ERROR in /api/submit: {str(e)}", exc_info=True)
-        return jsonify({"error": "Internal server error"}), 500
+        print(f"🎯 DEBUG ERROR: Exception caught: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()  # This will print full stack trace
+        return jsonify({"debug_error": str(e)}), 500
+# ========== END DEBUG VERSION ==========
 
 # Get profile using API key
 @app.route('/api/v1/profile', methods=['GET'])
