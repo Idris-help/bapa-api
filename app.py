@@ -177,13 +177,18 @@ def test_db():
             "mode": "real"
         })
 
-# Submit BAPA test results
+# Submit BAPA test results - WITH DEBUG LOGGING ADDED
 @app.route('/api/submit', methods=['POST'])
 def submit_test():
     try:
+        print("=== /api/submit called ===")
+        print(f"Request data type: {type(request.json)}")
+        print(f"Request data: {request.json}")
+        
         data = request.json
         
         if supabase is None:
+            print("Running in MOCK mode")
             # Mock mode
             return jsonify({
                 "status": "success",
@@ -196,22 +201,32 @@ def submit_test():
                 "mode": "mock"
             })
         
+        print("Running in REAL mode")
         # REAL MODE: Save to database
         # 1. Create user first (or use existing)
         user_email = data.get('email', f"user_{uuid.uuid4().hex[:8]}@bapa.com")
+        print(f"User email: {user_email}")
         
         # Check if user exists
+        print("Checking if user exists...")
         user_check = supabase.table('users').select('*').eq('email', user_email).execute()
+        print(f"User check result: {user_check.data}")
         
         if user_check.data:
             user_id = user_check.data[0]['id']
+            print(f"User exists with ID: {user_id}")
         else:
             # Create new user
+            print("Creating new user...")
             user_data = {"email": user_email}
+            print(f"User data to insert: {user_data}")
             user_response = supabase.table('users').insert(user_data).execute()
+            print(f"User insert response: {user_response.data}")
             user_id = user_response.data[0]['id']
+            print(f"New user ID: {user_id}")
         
         # 2. Save test response
+        print("Preparing response data...")
         response_data = {
             "user_id": user_id,
             "language": data.get('language', 'EN'),
@@ -220,18 +235,29 @@ def submit_test():
             "oce_matrix": data.get('oce_matrix', {}),
             "profile": data.get('profile', {})
         }
+        print(f"Response data: {response_data}")
         
+        print("Inserting into responses table...")
         response = supabase.table('responses').insert(response_data).execute()
+        print(f"Insert response: {response.data}")
         response_id = response.data[0]['id']
+        print(f"Response ID: {response_id}")
         
         # 3. Generate API key
         api_key = f"bapa_{uuid.uuid4().hex}"
+        print(f"Generated API key: {api_key}")
+        
         api_key_data = {
             "user_id": user_id,
-            "api_key": api_key
+            "api_key": api_key,
+            "is_active": True,  # Added missing field
+            "requests_count": 0  # Added missing field
         }
+        print(f"API key data to insert: {api_key_data}")
         
+        print("Inserting into api_keys table...")
         supabase.table('api_keys').insert(api_key_data).execute()
+        print("API key inserted successfully")
         
         return jsonify({
             "status": "success",
@@ -250,6 +276,9 @@ def submit_test():
         })
         
     except Exception as e:
+        print(f"!!! ERROR in /api/submit: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 # Get profile using API key
