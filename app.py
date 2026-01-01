@@ -6,19 +6,23 @@ import json
 import uuid
 from datetime import datetime
 import logging
-import sys 
+
 # Load environment variables from .env file
 load_dotenv()
 
-# ========== CONFIGURE LOGGING ==========
+# ========== CONFIGURE LOGGING TO FILE ==========
 import sys
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
 
+# Log to file AND console
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('/tmp/app_debug.log')
+    ]
 )
 logger = logging.getLogger(__name__)
 # ========== END LOGGING CONFIG ==========
@@ -173,11 +177,9 @@ def test_db():
             "mode": "real"
         })
 
-# ========== TEST USER CREATION LOGIC ==========
+# ========== USER CREATION WITH ERROR IN RESPONSE ==========
 @app.route('/api/submit', methods=['POST'])
 def submit_test():
-    print("🎯 STEP 1: Testing USER CREATION logic", flush=True)
-    
     try:
         data = request.json
         
@@ -186,28 +188,17 @@ def submit_test():
         
         # Force NEW user creation (not existing)
         user_email = f"new_user_{uuid.uuid4().hex[:8]}@example.com"
-        print(f"🎯 STEP 2: Creating NEW user with email: {user_email}", flush=True)
         
         # First, check it doesn't exist
-        print("🎯 STEP 3: Verifying user doesn't exist...", flush=True)
         user_check = supabase.table('users').select('*').eq('email', user_email).execute()
-        print(f"🎯 STEP 4: Initial check: {len(user_check.data)} users found", flush=True)
         
         # Create new user
-        print("🎯 STEP 5: Creating new user...", flush=True)
         user_data = {"email": user_email}
-        print(f"🎯 STEP 6: User data to insert: {user_data}", flush=True)
-        
         user_response = supabase.table('users').insert(user_data).execute()
-        print(f"🎯 STEP 7: Insert response: {user_response.data}", flush=True)
-        
         user_id = user_response.data[0]['id']
-        print(f"🎯 STEP 8: New user ID: {user_id}", flush=True)
         
         # Verify creation worked
-        print("🎯 STEP 9: Verifying user was created...", flush=True)
         verify_check = supabase.table('users').select('*').eq('id', user_id).execute()
-        print(f"🎯 STEP 10: Verification: {verify_check.data}", flush=True)
         
         return jsonify({
             "status": "user_creation_works",
@@ -218,10 +209,20 @@ def submit_test():
         })
         
     except Exception as e:
-        print(f"🎯 ERROR in user creation: {str(e)}", flush=True)
+        # Return the ACTUAL error in the response
         import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"User creation failed: {str(e)}"}), 500
+        error_details = traceback.format_exc()
+        
+        return jsonify({
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "error_details": error_details,
+            "debug_info": {
+                "supabase_url": supabase_url,
+                "has_supabase_object": supabase is not None,
+                "user_email_attempted": user_email if 'user_email' in locals() else "not set"
+            }
+        }), 500
 # ========== END TEST VERSION ==========
 
 # Get profile using API key
