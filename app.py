@@ -64,26 +64,48 @@ class SimpleTableClient:
         return self
     
     def execute(self):
-        import requests
-        response = requests.get(self.endpoint, headers=self.headers, params=getattr(self, 'params', {}))
-        response.raise_for_status()
+        import urllib.request
+        import urllib.parse
+        
+        # Build URL with params
+        url = self.endpoint
+        if hasattr(self, 'params'):
+            url += '?' + urllib.parse.urlencode(self.params)
+        
+        # Create request
+        req = urllib.request.Request(url, headers=self.headers)
+        
+        # Make request
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
         
         class Response:
             def __init__(self, data):
                 self.data = data
         
-        return Response(response.json())
+        return Response(data)
     
     def insert(self, data):
-        import requests
-        response = requests.post(self.endpoint, headers=self.headers, json=data)
-        response.raise_for_status()
+        import urllib.request
+        import json
+        
+        # Create request
+        req = urllib.request.Request(
+            self.endpoint,
+            data=json.dumps(data).encode('utf-8'),
+            headers=self.headers,
+            method='POST'
+        )
+        
+        # Make request
+        with urllib.request.urlopen(req) as response:
+            result = json.loads(response.read().decode())
         
         class Response:
             def __init__(self, data):
                 self.data = data
         
-        return Response(response.json())
+        return Response(result)
 
 try:
     supabase = SimpleSupabaseClient(supabase_url, supabase_key)
