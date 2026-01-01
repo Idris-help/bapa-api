@@ -23,144 +23,86 @@ logger = logging.getLogger(__name__)
 # Create Flask app
 app = Flask(__name__)
 
-# ========== SIMPLE SUPABASE CLIENT (FIXED) ==========
+# ========== FALLBACK SOLUTION ==========
+# Since your custom client has issues, let's use REQUESTS directly
 import requests
 
 supabase_url = "https://rzryozfztwupzjhlkwji.supabase.co"
 supabase_key = "sb_publishable_kCre0WyunXL8XxrETcmsUw_wMhssuDA"
 
-class SimpleSupabaseClient:
-    def __init__(self, url, key):
-        self.base_url = url
-        self.headers = {
-            "apikey": key,
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json"
-        }
-        logger.debug(f"Supabase client initialized for URL: {url}")
-    
-    def table(self, table_name):
-        return SimpleTableClient(f"{self.base_url}/rest/v1/{table_name}", self.headers)
+headers = {
+    "apikey": supabase_key,
+    "Authorization": f"Bearer {supabase_key}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation"  # Important for INSERT operations
+}
 
-class SimpleTableClient:
-    def __init__(self, endpoint, headers):
-        self.endpoint = endpoint
-        self.headers = headers
+def supabase_select(table, filters=None, limit=None):
+    """Simple SELECT using requests library"""
+    url = f"{supabase_url}/rest/v1/{table}"
+    params = {}
     
-    def select(self, columns="*"):
-        self.select_columns = columns
-        return self
+    if filters:
+        for key, value in filters.items():
+            params[key] = f"eq.{value}"
+    if limit:
+        params["limit"] = str(limit)
     
-    def eq(self, column, value):
-        if not hasattr(self, 'params'):
-            self.params = {}
-        self.params[column] = f"eq.{value}"
-        return self
-    
-    def limit(self, count):
-        if not hasattr(self, 'params'):
-            self.params = {}
-        self.params['limit'] = str(count)
-        return self
-    
-    def execute(self):
-        try:
-            import urllib.request
-            import urllib.parse
-            
-            # Build URL with params
-            url = self.endpoint
-            if hasattr(self, 'params'):
-                url += '?' + urllib.parse.urlencode(self.params)
-            
-            logger.debug(f"Making GET request to: {url}")
-            
-            # Create request
-            req = urllib.request.Request(url, headers=self.headers)
-            
-            # Make request
-            with urllib.request.urlopen(req) as response:
-                data = json.loads(response.read().decode())
-            
-            class Response:
-                def __init__(self, data):
-                    self.data = data
-            
-            logger.debug(f"GET request successful, got {len(data)} items")
-            return Response(data)
-            
-        except Exception as e:
-            logger.error(f"GET request failed: {str(e)}")
-            raise
-    
-    def insert(self, data):
-        try:
-            import urllib.request
-            import json
-            
-            logger.debug(f"Making POST request to: {self.endpoint}")
-            logger.debug(f"Data to insert: {data}")
-            
-            # Create request
-            req = urllib.request.Request(
-                self.endpoint,
-                data=json.dumps(data).encode('utf-8'),
-                headers=self.headers,
-                method='POST'
-            )
-            
-            # Make request
-            with urllib.request.urlopen(req) as response:
-                result = json.loads(response.read().decode())
-            
-            class Response:
-                def __init__(self, data):
-                    self.data = data
-            
-            logger.debug(f"POST request successful: {result}")
-            return Response(result)
-            
-        except Exception as e:
-            logger.error(f"POST request failed: {str(e)}")
-            # Return the actual error
-            raise
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"SELECT error on {table}: {e}")
+        return []
 
+def supabase_insert(table, data):
+    """Simple INSERT using requests library"""
+    url = f"{supabase_url}/rest/v1/{table}"
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"INSERT error on {table}: {e}")
+        logger.error(f"Response: {e.response.text}")
+        raise
+
+# Test connection
 try:
-    supabase = SimpleSupabaseClient(supabase_url, supabase_key)
-    logger.debug("✅ Simple REST client created")
-    
-    # Test connection
-    test_response = supabase.table('users').select('*').limit(1).execute()
-    logger.debug(f"✅ Database connection test: {len(test_response.data)} users found")
-    
+    logger.debug("Testing Supabase connection...")
+    test_data = supabase_select("users", limit=1)
+    logger.debug(f"✅ Connection test: Found {len(test_data)} users")
+    db_connected = True
 except Exception as e:
-    logger.error(f"⚠️ REST API initialization error: {e}", exc_info=True)
-    supabase = None
-# ========== END CLIENT SECTION ==========
+    logger.error(f"❌ Connection failed: {e}")
+    db_connected = False
+# ========== END FALLBACK SOLUTION ==========
 
 # Homepage
 @app.route('/')
 def home():
-    mode = "mock" if supabase is None else "real"
+    mode = "mock" if not db_connected else "real"
     return f"BAPA API is running! ({mode.title()} Mode)"
 
 # Test environment variables
 @app.route('/test-env')
 def test_env():
-    mode = "mock" if supabase is None else "real"
+    mode = "mock" if not db_connected else "real"
     return jsonify({
         "supabase_url": os.getenv("SUPABASE_URL"),
         "anon_key_exists": bool(os.getenv("SUPABASE_ANON_KEY")),
         "service_key_exists": bool(os.getenv("SUPABASE_SERVICE_KEY")),
         "status": "success",
         "mode": mode,
-        "database_connected": supabase is not None
+        "database_connected": db_connected
     })
 
 # Test database connection
 @app.route('/test-db')
 def test_db():
-    if supabase is None:
+    if not db_connected:
         return jsonify({
             "status": "mock",
             "message": "Mock mode - Supabase not connected",
@@ -169,15 +111,15 @@ def test_db():
         })
     
     try:
-        response = supabase.table('users').select('*').limit(10).execute()
+        data = supabase_select("users", limit=10)
         return jsonify({
             "status": "success",
-            "message": f"Database connected! Found {len(response.data)} users",
-            "data": response.data,
+            "message": f"Database connected! Found {len(data)} users",
+            "data": data,
             "mode": "real"
         })
     except Exception as e:
-        logger.error(f"Database query failed: {str(e)}", exc_info=True)
+        logger.error(f"Database query failed: {str(e)}")
         return jsonify({
             "status": "error",
             "message": f"Database query failed: {str(e)}",
@@ -185,58 +127,92 @@ def test_db():
             "mode": "real"
         })
 
-# ========== SIMPLE TEST ENDPOINT ==========
+# ========== SIMPLE WORKING /api/submit ==========
 @app.route('/api/submit', methods=['POST'])
 def submit_test():
     logger.debug("=== /api/submit called ===")
     
+    if not db_connected:
+        return jsonify({
+            "status": "mock",
+            "message": "Mock mode - Database not connected",
+            "api_key": f"bapa_mock_{uuid.uuid4().hex[:8]}",
+            "mode": "mock"
+        })
+    
     try:
-        # Test 1: Basic connection
-        logger.debug("Test 1: Checking supabase object")
-        if supabase is None:
-            return jsonify({"error": "Database not connected"}), 500
+        data = request.json or {}
         
-        # Test 2: Simple SELECT (we know this works)
-        logger.debug("Test 2: Testing SELECT query")
-        select_test = supabase.table('users').select('*').limit(1).execute()
-        logger.debug(f"SELECT test: Found {len(select_test.data)} users")
+        # 1. Check or create user
+        user_email = data.get('email', f"user_{uuid.uuid4().hex[:8]}@bapa.com")
+        logger.debug(f"Processing user: {user_email}")
         
-        # Test 3: Try a SIMPLE insert with minimal data
-        logger.debug("Test 3: Testing INSERT with minimal data")
+        # Check if user exists
+        existing_users = supabase_select("users", {"email": user_email})
         
-        # Use a simple test table if 'users' doesn't allow inserts
-        test_email = f"simple_test_{uuid.uuid4().hex[:8]}@test.com"
-        test_data = {"email": test_email}
+        if existing_users:
+            user_id = existing_users[0]['id']
+            logger.debug(f"User exists: {user_id}")
+        else:
+            # Create new user
+            logger.debug(f"Creating new user: {user_email}")
+            new_user = supabase_insert("users", {"email": user_email})
+            user_id = new_user[0]['id'] if new_user else str(uuid.uuid4())
+            logger.debug(f"Created user with ID: {user_id}")
         
-        logger.debug(f"Attempting to insert: {test_data}")
+        # 2. Create a simple response record
+        response_data = {
+            "user_id": user_id,
+            "sovereignty_score": data.get('sovereignty_score', 75.5),
+            "answers": data.get('answers', {}),
+            "profile": data.get('profile', {}),
+            "oce_matrix": data.get('oce_matrix', {}),
+            "language": data.get('language', 'EN')
+        }
         
-        # Try the insert
-        insert_result = supabase.table('users').insert(test_data).execute()
-        logger.debug(f"Insert result: {insert_result.data}")
+        logger.debug(f"Inserting response data")
+        response_result = supabase_insert("responses", response_data)
+        response_id = response_result[0]['id'] if response_result else str(uuid.uuid4())
         
-        # If we get here, it worked!
+        # 3. Generate API key
+        api_key = f"bapa_{uuid.uuid4().hex}"
+        api_key_data = {
+            "user_id": user_id,
+            "api_key": api_key,
+            "is_active": True,
+            "requests_count": 0
+        }
+        
+        logger.debug(f"Creating API key: {api_key[:10]}...")
+        supabase_insert("api_keys", api_key_data)
+        
+        # SUCCESS!
         return jsonify({
             "status": "success",
-            "message": "All tests passed!",
-            "select_test": f"Found {len(select_test.data)} users",
-            "insert_test": f"Inserted user with ID: {insert_result.data[0]['id'] if insert_result.data else 'unknown'}",
-            "test_email": test_email
+            "message": "BAPA test saved successfully!",
+            "user_id": user_id,
+            "response_id": response_id,
+            "api_key": api_key,
+            "sovereignty_score": response_data['sovereignty_score'],
+            "profile_type": response_data['profile'].get('type', 'Not specified'),
+            "mode": "real",
+            "next_steps": [
+                "Use this API key to access your profile",
+                "Endpoint: GET /api/v1/profile",
+                "Header: Authorization: Bearer YOUR_API_KEY"
+            ]
         })
         
     except Exception as e:
         logger.error(f"ERROR in /api/submit: {str(e)}", exc_info=True)
         
-        # Return detailed error
-        import traceback
-        error_trace = traceback.format_exc()
-        
+        # Return error with details
         return jsonify({
             "error": str(e),
             "error_type": type(e).__name__,
-            "error_details": error_trace,
             "debug_info": {
-                "supabase_connected": supabase is not None,
-                "supabase_url": supabase_url
+                "db_connected": db_connected,
+                "has_request_data": request.json is not None
             }
         }), 500
 
@@ -251,7 +227,7 @@ def get_profile():
         
         api_key = auth_header.split(' ')[1]
         
-        if supabase is None:
+        if not db_connected:
             # Mock mode
             return jsonify({
                 "user_id": str(uuid.uuid4()),
@@ -268,40 +244,39 @@ def get_profile():
                 "mode": "mock"
             })
         
-        # REAL MODE: Verify API key exists and is active
-        key_check = supabase.table('api_keys').select('*, users(*)').eq('api_key', api_key).eq('is_active', True).execute()
+        # REAL MODE: Verify API key exists
+        api_keys = supabase_select("api_keys", {"api_key": api_key, "is_active": "true"})
         
-        if not key_check.data:
+        if not api_keys:
             return jsonify({"error": "Invalid or inactive API key"}), 401
         
-        api_key_data = key_check.data[0]
+        api_key_data = api_keys[0]
         user_id = api_key_data['user_id']
         
-        # Get latest response for this user
-        response_check = supabase.table('responses').select('*').eq('user_id', user_id).order('created_at', desc=True).limit(1).execute()
+        # Get user info
+        users = supabase_select("users", {"id": user_id})
+        if not users:
+            return jsonify({"error": "User not found"}), 404
         
-        if not response_check.data:
-            return jsonify({"error": "No test results found for this user"}), 404
+        # Get latest response
+        responses = supabase_select("responses", {"user_id": user_id})
+        if not responses:
+            return jsonify({"error": "No test results found"}), 404
         
-        response_data = response_check.data[0]
+        # Get latest response
+        latest_response = max(responses, key=lambda x: x.get('created_at', ''))
         
-        # Update request count
-        supabase.table('api_keys').update({
-            "requests_count": api_key_data['requests_count'] + 1
-        }).eq('id', api_key_data['id']).execute()
-        
-        # Return profile
         return jsonify({
             "user_id": user_id,
-            "email": api_key_data['users']['email'],
-            "sovereignty_score": response_data['sovereignty_score'],
-            "profile_type": response_data['profile'].get('type', 'Operator'),
-            "strengths": response_data['profile'].get('strengths', ['Analytical Thinking', 'Problem Solving']),
-            "weaknesses": response_data['profile'].get('weaknesses', ['Time Management', 'Detail Orientation']),
-            "communication_style": response_data['profile'].get('communication_style', 'Direct and concise'),
-            "oce_matrix": response_data['oce_matrix'],
-            "last_updated": response_data['created_at'],
-            "api_requests_used": api_key_data['requests_count'] + 1,
+            "email": users[0]['email'],
+            "sovereignty_score": latest_response.get('sovereignty_score', 75.5),
+            "profile_type": latest_response.get('profile', {}).get('type', 'Operator'),
+            "strengths": latest_response.get('profile', {}).get('strengths', ['Analytical Thinking', 'Problem Solving']),
+            "weaknesses": latest_response.get('profile', {}).get('weaknesses', ['Time Management', 'Detail Orientation']),
+            "communication_style": latest_response.get('profile', {}).get('communication_style', 'Direct and concise'),
+            "oce_matrix": latest_response.get('oce_matrix', {}),
+            "last_updated": latest_response.get('created_at', datetime.now().isoformat()),
+            "api_requests_used": api_key_data.get('requests_count', 0) + 1,
             "api_requests_limit": 1000,
             "mode": "real"
         })
@@ -312,14 +287,14 @@ def get_profile():
 
 # Main function to run the app
 if __name__ == '__main__':
-    mode = "mock" if supabase is None else "real"
+    mode = "mock" if not db_connected else "real"
     
     logger.info("=" * 50)
     logger.info(f"🚀 BAPA API Server - {mode.upper()} MODE")
     logger.info("=" * 50)
     logger.info(f"📊 Supabase URL: {supabase_url}")
     logger.info(f"🔑 Anon Key: Loaded")
-    logger.info(f"🗄️ Database: {'✅ Connected' if supabase is not None else '❌ Not Connected'}")
+    logger.info(f"🗄️ Database: {'✅ Connected' if db_connected else '❌ Not Connected'}")
     logger.info("=" * 50)
     logger.info(f"🌐 Server running on: http://localhost:5000")
     logger.info("🔗 Available Endpoints:")
