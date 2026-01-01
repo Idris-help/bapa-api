@@ -173,41 +173,45 @@ def test_db():
             "mode": "real"
         })
 
-# ========== DEBUG VERSION OF /api/submit ==========
+# ========== TEST ONLY USER LOGIC VERSION ==========
 @app.route('/api/submit', methods=['POST'])
 def submit_test():
-    print("🎯 DEBUG 1: /api/submit ENTERED - This MUST appear in logs", flush=True)
+    print("🎯 STEP 1: Starting /api/submit", flush=True)
     
     try:
-        print("🎯 DEBUG 2: Try block started", flush=True)
         data = request.json
-        print(f"🎯 DEBUG 3: Got request data: {data}", flush=True)
+        print(f"🎯 STEP 2: Got data: {data}", flush=True)
         
-        # FORCE AN ERROR EARLY - Let's see if we even get this far
-        print("🎯 DEBUG 4: Checking supabase object", flush=True)
         if supabase is None:
-            print("🎯 DEBUG 5: supabase is None - mock mode", flush=True)
-            return jsonify({"status": "mock", "message": "Mock mode"})
+            return jsonify({"status": "mock"})
         
-        print("🎯 DEBUG 6: Real mode - testing database connection", flush=True)
+        # ONLY TEST USER LOGIC - nothing else
+        print("🎯 STEP 3: Testing USER logic only", flush=True)
         
-        # SIMPLEST POSSIBLE TEST - Just query users table
-        test = supabase.table('users').select('*').limit(1).execute()
-        print(f"🎯 DEBUG 7: Database test result: {test.data}", flush=True)
+        user_email = data.get('email', f"user_{uuid.uuid4().hex[:8]}@bapa.com")
+        print(f"🎯 STEP 4: User email: {user_email}", flush=True)
         
-        # If we get here, return a simple success
+        # Try to check if user exists
+        print("🎯 STEP 5: Checking if user exists...", flush=True)
+        user_check = supabase.table('users').select('*').eq('email', user_email).execute()
+        print(f"🎯 STEP 6: User check result: {user_check.data}", flush=True)
+        
+        # If we get here, user logic works
+        print("🎯 STEP 7: User logic SUCCESS!", flush=True)
+        
         return jsonify({
-            "status": "debug_success",
-            "message": "Debug test passed",
-            "data_length": len(test.data) if test.data else 0
+            "status": "user_logic_works",
+            "message": "User check logic passed",
+            "email": user_email,
+            "user_exists": len(user_check.data) > 0
         })
         
     except Exception as e:
-        print(f"🎯 DEBUG ERROR: Exception caught: {str(e)}", flush=True)
+        print(f"🎯 ERROR in user logic: {str(e)}", flush=True)
         import traceback
-        traceback.print_exc()  # This will print full stack trace
-        return jsonify({"debug_error": str(e)}), 500
-# ========== END DEBUG VERSION ==========
+        traceback.print_exc()
+        return jsonify({"error": f"User logic failed: {str(e)}"}), 500
+# ========== END TEST VERSION ==========
 
 # Get profile using API key
 @app.route('/api/v1/profile', methods=['GET'])
